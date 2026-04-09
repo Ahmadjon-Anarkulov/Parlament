@@ -4,6 +4,7 @@ import com.parlament.model.CartItem;
 import com.parlament.model.Product;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.util.*;
@@ -13,6 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Manages shopping carts for all users.
  * In-memory, thread-safe implementation using ConcurrentHashMap.
  */
+@Service
 public class CartService {
 
     private static final Logger log = LoggerFactory.getLogger(CartService.class);

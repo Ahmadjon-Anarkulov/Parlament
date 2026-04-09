@@ -4,10 +4,12 @@ import com.parlament.model.UserSession;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
+import org.springframework.stereotype.Service;
 
 /**
  * Manages user conversation sessions and checkout state.
  */
+@Service
 public class SessionService {
 
     private final Map<Long, UserSession> sessions = new ConcurrentHashMap<>();

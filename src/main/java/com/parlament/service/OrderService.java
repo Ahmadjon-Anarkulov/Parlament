@@ -4,6 +4,7 @@ import com.parlament.model.CartItem;
 import com.parlament.model.Order;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -13,6 +14,7 @@ import java.util.stream.Collectors;
  * Manages order creation and history for all users.
  * In-memory storage using ConcurrentHashMap.
  */
+@Service
 public class OrderService {
 
     private static final Logger log = LoggerFactory.getLogger(OrderService.class);

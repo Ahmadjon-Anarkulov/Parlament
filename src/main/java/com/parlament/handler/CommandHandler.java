@@ -1,35 +1,34 @@
 package com.parlament.handler;
 
-import com.parlament.bot.ParlamentBot;
 import com.parlament.service.CartService;
 import com.parlament.service.OrderService;
 import com.parlament.service.SessionService;
+import com.parlament.telegram.TelegramBotSender;
 import com.parlament.util.KeyboardFactory;
 import com.parlament.util.MessageFormatter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
 
+@Component
 public class CommandHandler {
 
     private static final Logger log = LoggerFactory.getLogger(CommandHandler.class);
 
-    private final ParlamentBot bot;
     private final CartService cartService;
     private final OrderService orderService;
     private final SessionService sessionService;
 
-    public CommandHandler(ParlamentBot bot, CartService cartService,
-                          OrderService orderService, SessionService sessionService) {
-        this.bot = bot;
+    public CommandHandler(CartService cartService, OrderService orderService, SessionService sessionService) {
         this.cartService = cartService;
         this.orderService = orderService;
         this.sessionService = sessionService;
     }
 
-    public void handle(Update update) {
+    public void handle(Update update, TelegramBotSender sender) {
         Message message = update.getMessage();
         long chatId = message.getChatId();
         long userId = message.getFrom().getId();
@@ -39,23 +38,23 @@ public class CommandHandler {
         log.debug("Команда от пользователя {}: {}", userId, command);
 
         switch (command) {
-            case "/start"   -> handleStart(chatId, message.getFrom().getFirstName(), userId);
-            case "/help"    -> handleHelp(chatId);
-            case "/catalog" -> bot.sendText(buildCatalogMessage(chatId));
-            case "/cart"    -> bot.sendText(buildCartMessage(chatId, userId));
-            case "/orders"  -> bot.sendText(buildOrdersMessage(chatId, userId));
-            default         -> bot.sendText(buildMessage(chatId, MessageFormatter.unknownCommandMessage()));
+            case "/start"   -> handleStart(sender, chatId, message.getFrom().getFirstName(), userId);
+            case "/help"    -> handleHelp(sender, chatId);
+            case "/catalog" -> sender.sendText(buildCatalogMessage(chatId));
+            case "/cart"    -> sender.sendText(buildCartMessage(chatId, userId));
+            case "/orders"  -> sender.sendText(buildOrdersMessage(chatId, userId));
+            default         -> sender.sendText(buildMessage(chatId, MessageFormatter.unknownCommandMessage()));
         }
     }
 
-    private void handleStart(long chatId, String firstName, long userId) {
+    private void handleStart(TelegramBotSender sender, long chatId, String firstName, long userId) {
         sessionService.resetCheckout(userId);
         SendMessage msg = buildMessage(chatId, MessageFormatter.welcomeMessage(firstName));
         msg.setReplyMarkup(KeyboardFactory.mainMenuKeyboard());
-        bot.sendText(msg);
+        sender.sendText(msg);
     }
 
-    private void handleHelp(long chatId) {
+    private void handleHelp(TelegramBotSender sender, long chatId) {
         String helpText = "🎩 <b>Parlament Bot — Помощь</b>\n\n"
                 + "<b>Команды:</b>\n"
                 + "/start — Вернуться в главное меню\n"
@@ -63,7 +62,7 @@ public class CommandHandler {
                 + "/cart — Открыть корзину\n"
                 + "/orders — История заказов\n"
                 + "/help — Показать это сообщение";
-        bot.sendText(buildMessage(chatId, helpText));
+        sender.sendText(buildMessage(chatId, helpText));
     }
 
     private SendMessage buildCatalogMessage(long chatId) {
