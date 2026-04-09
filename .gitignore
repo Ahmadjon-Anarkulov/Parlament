@@ -1,0 +1,18 @@
+target/
+*.log
+logs/
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IntelliJ / Cursor / VSCode
+.idea/
+*.iml
+.vscode/
+
+# OS
+Thumbs.db
+Desktop.ini
+
