@@ -1,0 +1,17 @@
+C:\Users\shaki\OneDrive\Документы\parlament-bot\src\main\java\com\parlament\bot\ParlamentBot.java
+C:\Users\shaki\OneDrive\Документы\parlament-bot\src\main\java\com\parlament\config\BotConfig.java
+C:\Users\shaki\OneDrive\Документы\parlament-bot\src\main\java\com\parlament\data\ProductCatalog.java
+C:\Users\shaki\OneDrive\Документы\parlament-bot\src\main\java\com\parlament\handler\CallbackHandler.java
+C:\Users\shaki\OneDrive\Документы\parlament-bot\src\main\java\com\parlament\handler\CommandHandler.java
+C:\Users\shaki\OneDrive\Документы\parlament-bot\src\main\java\com\parlament\handler\TextHandler.java
+C:\Users\shaki\OneDrive\Документы\parlament-bot\src\main\java\com\parlament\Main.java
+C:\Users\shaki\OneDrive\Документы\parlament-bot\src\main\java\com\parlament\model\CartItem.java
+C:\Users\shaki\OneDrive\Документы\parlament-bot\src\main\java\com\parlament\model\Category.java
+C:\Users\shaki\OneDrive\Документы\parlament-bot\src\main\java\com\parlament\model\Order.java
+C:\Users\shaki\OneDrive\Документы\parlament-bot\src\main\java\com\parlament\model\Product.java
+C:\Users\shaki\OneDrive\Документы\parlament-bot\src\main\java\com\parlament\model\UserSession.java
+C:\Users\shaki\OneDrive\Документы\parlament-bot\src\main\java\com\parlament\service\CartService.java
+C:\Users\shaki\OneDrive\Документы\parlament-bot\src\main\java\com\parlament\service\OrderService.java
+C:\Users\shaki\OneDrive\Документы\parlament-bot\src\main\java\com\parlament\service\SessionService.java
+C:\Users\shaki\OneDrive\Документы\parlament-bot\src\main\java\com\parlament\util\KeyboardFactory.java
+C:\Users\shaki\OneDrive\Документы\parlament-bot\src\main\java\com\parlament\util\MessageFormatter.java
