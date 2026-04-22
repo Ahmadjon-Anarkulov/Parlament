@@ -1,18 +1,22 @@
+# Maven
 target/
-*.log
-logs/
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+*.jar
+*.war
 
-# IntelliJ / Cursor / VSCode
+# IDE
 .idea/
 *.iml
 .vscode/
+*.class
+
+# Env
+.env
+!.env.example
 
 # OS
+.DS_Store
 Thumbs.db
-Desktop.ini
 
+# Logs
+*.log
+logs/

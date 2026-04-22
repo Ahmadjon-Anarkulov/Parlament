@@ -1,71 +1,36 @@
 package com.parlament.config;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
+import com.parlament.telegram.ParlamentBot;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.event.EventListener;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
-import org.telegram.telegrambots.meta.api.methods.updates.SetWebhook;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
-import com.parlament.telegram.LongPollingParlamentBot;
-import com.parlament.telegram.TelegramSenderClient;
 
-@Configuration
-@EnableConfigurationProperties(BotProperties.class)
+@Slf4j
+@Component
+@RequiredArgsConstructor
 public class TelegramConfig {
 
-    private static final Logger log = LoggerFactory.getLogger(TelegramConfig.class);
+    private final ParlamentBot bot;
+    private final BotProperties props;
 
-    private final BotProperties botProperties;
-
-    public TelegramConfig(BotProperties botProperties) {
-        this.botProperties = botProperties;
-    }
-
-    @Bean
-    public TelegramBotsApi telegramBotsApi() throws TelegramApiException {
-        return new TelegramBotsApi(DefaultBotSession.class);
-    }
-
-    @EventListener(ApplicationReadyEvent.class)
-    public void startBots(TelegramBotsApi api,
-                          LongPollingParlamentBot longPollingBot,
-                          TelegramSenderClient senderClient) throws TelegramApiException {
-
-        boolean webhookEnabled = botProperties.getWebhook().isEnabled()
-                || "webhook".equalsIgnoreCase(botProperties.getMode());
-
-        if (webhookEnabled) {
-            var webhook = botProperties.getWebhook();
-            if (webhook.getPublicUrl() == null || webhook.getPublicUrl().isBlank()) {
-                throw new IllegalStateException("BOT_WEBHOOK_PUBLIC_URL must be set when webhook mode is enabled.");
-            }
-
-            String fullUrl = normalizeBaseUrl(webhook.getPublicUrl()) + normalizePath(webhook.getPath());
-
-            // Telegram requires you to set the webhook at runtime.
-            senderClient.execute(SetWebhook.builder().url(fullUrl).build());
-
-            log.info("Telegram webhook enabled at {}", fullUrl);
-        } else {
-            api.registerBot(longPollingBot);
-            log.info("Telegram long polling enabled for @{}", botProperties.getUsername());
+    @EventListener(ContextRefreshedEvent.class)
+    public void registerBot() {
+        if (props.isWebhookMode()) {
+            log.info("Bot running in WEBHOOK mode — registration skipped (handled via controller)");
+            return;
+        }
+        try {
+            TelegramBotsApi api = new TelegramBotsApi(DefaultBotSession.class);
+            api.registerBot(bot);
+            log.info("✅ Bot @{} registered in LONG_POLLING mode", props.getUsername());
+        } catch (TelegramApiException e) {
+            log.error("❌ Failed to register bot: {}", e.getMessage(), e);
+            throw new RuntimeException("Bot registration failed", e);
         }
     }
-
-    private static String normalizeBaseUrl(String baseUrl) {
-        if (baseUrl.endsWith("/")) return baseUrl.substring(0, baseUrl.length() - 1);
-        return baseUrl;
-    }
-
-    private static String normalizePath(String path) {
-        if (path == null || path.isBlank()) return "/telegram/webhook";
-        if (path.startsWith("/")) return path;
-        return "/" + path;
-    }
 }
-

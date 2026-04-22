@@ -1,224 +1,192 @@
 package com.parlament.handler;
 
 import com.parlament.model.*;
-import com.parlament.repository.ProductRepository;
-import com.parlament.service.CartService;
-import com.parlament.service.OrderService;
-import com.parlament.service.SessionService;
-import com.parlament.telegram.TelegramBotSender;
+import com.parlament.service.*;
+import com.parlament.util.BotSender;
 import com.parlament.util.KeyboardFactory;
 import com.parlament.util.MessageFormatter;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
-import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
-import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
-import org.telegram.telegrambots.meta.api.objects.InputFile;
-import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.bots.AbsSender;
 
+import java.math.BigDecimal;
 import java.util.List;
 
-/**
- * Handles all inline keyboard (callback query) interactions.
- */
+@Slf4j
 @Component
+@RequiredArgsConstructor
 public class CallbackHandler {
 
-    private static final Logger log = LoggerFactory.getLogger(CallbackHandler.class);
-
+    private final CatalogService catalogService;
     private final CartService cartService;
     private final OrderService orderService;
-    private final SessionService sessionService;
-    private final ProductRepository productRepository;
+    private final UserService userService;
+    private final NotificationService notifier;
 
-    public CallbackHandler(CartService cartService,
-                           OrderService orderService,
-                           SessionService sessionService,
-                           ProductRepository productRepository) {
-        this.cartService = cartService;
-        this.orderService = orderService;
-        this.sessionService = sessionService;
-        this.productRepository = productRepository;
-    }
+    public void handle(AbsSender bot, CallbackQuery cbq, BotUser user) {
+        String data = cbq.getData();
+        Long chatId = cbq.getMessage().getChatId();
+        Integer msgId = cbq.getMessage().getMessageId();
 
-    public void handle(Update update, TelegramBotSender sender) {
-        CallbackQuery cb = update.getCallbackQuery();
-        String data  = cb.getData();
-        long chatId  = cb.getMessage().getChatId();
-        long userId  = cb.getFrom().getId();
-        String cbId  = cb.getId();
-
-        log.debug("Callback from user {}: {}", userId, data);
-        AnswerCallbackQuery ack = new AnswerCallbackQuery();
-        ack.setCallbackQueryId(cbId);
-        sender.answerCallback(ack);
-
-        if (data.equals(KeyboardFactory.CB_BACK_MAIN)) {
-            showMainMenu(sender, chatId, cb.getFrom().getFirstName(), userId);
-        } else if (data.equals(KeyboardFactory.CB_CATALOG)) {
-            showCatalog(sender, chatId);
-        } else if (data.startsWith(KeyboardFactory.CB_CAT_PREFIX)) {
-            showCategory(sender, chatId, data.substring(KeyboardFactory.CB_CAT_PREFIX.length()));
-        } else if (data.startsWith(KeyboardFactory.CB_PROD_PREFIX)) {
-            showProduct(sender, chatId, data.substring(KeyboardFactory.CB_PROD_PREFIX.length()));
-        } else if (data.startsWith(KeyboardFactory.CB_ADD_PREFIX)) {
-            addToCart(sender, chatId, userId, data.substring(KeyboardFactory.CB_ADD_PREFIX.length()), cbId);
-        } else if (data.startsWith(KeyboardFactory.CB_REMOVE_PREFIX)) {
-            removeFromCart(sender, chatId, userId, data.substring(KeyboardFactory.CB_REMOVE_PREFIX.length()));
-        } else if (data.equals(KeyboardFactory.CB_CART)) {
-            showCart(sender, chatId, userId);
-        } else if (data.equals(KeyboardFactory.CB_CLEAR_CART)) {
-            clearCart(sender, chatId, userId);
-        } else if (data.equals(KeyboardFactory.CB_CHECKOUT)) {
-            startCheckout(sender, chatId, userId);
-        } else if (data.equals(KeyboardFactory.CB_ORDERS)) {
-            showOrders(sender, chatId, userId);
-        } else if (data.equals(KeyboardFactory.CB_SUPPORT)) {
-            showSupport(sender, chatId);
-        } else if (data.equals(KeyboardFactory.CB_CANCEL)) {
-            cancelCheckout(sender, chatId, userId);
-        } else {
-            log.warn("Unknown callback data: {}", data);
+        try {
+            if (data.startsWith("cat:"))         handleCategory(bot, cbq, user, data);
+            else if (data.startsWith("prod:"))    handleProduct(bot, cbq, user, data);
+            else if (data.startsWith("add:"))     handleAddToCart(bot, cbq, user, data);
+            else if (data.startsWith("cart:"))    handleCart(bot, cbq, user, data);
+            else if (data.equals("checkout"))     handleCheckout(bot, cbq, user);
+            else if (data.startsWith("back:"))    handleBack(bot, cbq, user, data);
+            else if (data.startsWith("order:"))   handleOrderAction(bot, cbq, user, data);
+            else if (data.startsWith("admin:"))   handleAdmin(bot, cbq, user, data);
+            else if (data.equals("noop"))         BotSender.answerCallback(bot, cbq.getId(), "", false);
+            else {
+                BotSender.answerCallback(bot, cbq.getId(), "Неизвестное действие", false);
+            }
+        } catch (Exception e) {
+            log.error("Callback error [{}]: {}", data, e.getMessage(), e);
+            BotSender.answerCallback(bot, cbq.getId(), "Ошибка, попробуйте снова", true);
         }
     }
 
-    private void showMainMenu(TelegramBotSender sender, long chatId, String firstName, long userId) {
-        sessionService.resetCheckout(userId);
-        SendMessage msg = buildMessage(chatId, MessageFormatter.mainMenuMessage());
-        msg.setReplyMarkup(KeyboardFactory.mainMenuKeyboard());
-        sender.sendText(msg);
+    private void handleCategory(AbsSender bot, CallbackQuery cbq, BotUser user, String data) {
+        Long catId = Long.parseLong(data.substring(4));
+        var products = catalogService.getProductsByCategory(catId);
+        var category = catalogService.findCategory(catId).orElseThrow();
+
+        String text = category.getDisplayName() + "\n\nВыберите блюдо:";
+        if (products.isEmpty()) text = "В этой категории пока нет блюд";
+
+        BotSender.edit(bot, cbq.getMessage().getChatId(), cbq.getMessage().getMessageId(),
+                text, products.isEmpty() ? null : KeyboardFactory.products(products, catId));
+        BotSender.answerCallback(bot, cbq.getId(), "", false);
     }
 
-    private void showCatalog(TelegramBotSender sender, long chatId) {
-        SendMessage msg = buildMessage(chatId, MessageFormatter.catalogMessage());
-        msg.setReplyMarkup(KeyboardFactory.catalogKeyboard());
-        sender.sendText(msg);
-    }
-
-    private void showCategory(TelegramBotSender sender, long chatId, String catKey) {
-        Category category = Category.fromCallbackPrefix(catKey);
-        if (category == null) return;
-        List<Product> products = productRepository.findByCategory(category);
-        SendMessage msg = buildMessage(chatId,
-                MessageFormatter.categoryMessage(category.getDisplayName(), products.size()));
-        msg.setReplyMarkup(KeyboardFactory.productListKeyboard(products, category));
-        sender.sendText(msg);
-    }
-
-    private void showProduct(TelegramBotSender sender, long chatId, String productId) {
-        productRepository.findById(productId).ifPresent(product -> {
-            try {
-                SendPhoto photo = new SendPhoto();
-                photo.setChatId(chatId);
-                photo.setPhoto(new InputFile(product.getImageUrl()));
-                photo.setCaption(MessageFormatter.productDetailMessage(product));
-                photo.setParseMode("HTML");
-                photo.setReplyMarkup(KeyboardFactory.productDetailKeyboard(product));
-                sender.sendPhoto(photo);
-            } catch (Exception e) {
-                log.warn("Photo failed for {}, using text fallback", productId);
-                SendMessage msg = buildMessage(chatId, MessageFormatter.productDetailMessage(product));
-                msg.setReplyMarkup(KeyboardFactory.productDetailKeyboard(product));
-                sender.sendText(msg);
-            }
-        });
-    }
-
-    private void addToCart(TelegramBotSender sender, long chatId, long userId, String productId, String cbId) {
-        productRepository.findById(productId).ifPresent(product -> {
-            cartService.addToCart(userId, product);
-            AnswerCallbackQuery answer = new AnswerCallbackQuery();
-            answer.setCallbackQueryId(cbId);
-            answer.setText("✅ Добавлено в корзину!");
-            sender.answerCallback(answer);
-            SendMessage msg = buildMessage(chatId, MessageFormatter.productAddedMessage(product));
-            msg.setReplyMarkup(KeyboardFactory.cartKeyboard(true));
-            sender.sendText(msg);
-        });
-    }
-
-    private void removeFromCart(TelegramBotSender sender, long chatId, long userId, String productId) {
-        productRepository.findById(productId).ifPresent(product -> {
-            cartService.removeFromCart(userId, productId);
-            if (cartService.isCartEmpty(userId)) {
-                SendMessage msg = buildMessage(chatId,
-                        MessageFormatter.itemRemovedMessage(product.getName())
-                                + "\n\n" + MessageFormatter.emptyCartMessage());
-                msg.setReplyMarkup(KeyboardFactory.cartKeyboard(false));
-                sender.sendText(msg);
+    private void handleProduct(AbsSender bot, CallbackQuery cbq, BotUser user, String data) {
+        Long prodId = Long.parseLong(data.substring(5));
+        catalogService.findProduct(prodId).ifPresent(product -> {
+            if (product.getFileId() != null) {
+                BotSender.sendPhoto(bot, cbq.getMessage().getChatId(), product.getFileId(),
+                        MessageFormatter.product(product), KeyboardFactory.productActions(product));
             } else {
-                showCart(sender, chatId, userId);
+                BotSender.edit(bot, cbq.getMessage().getChatId(), cbq.getMessage().getMessageId(),
+                        MessageFormatter.product(product), KeyboardFactory.productActions(product));
             }
         });
+        BotSender.answerCallback(bot, cbq.getId(), "", false);
     }
 
-    private void showCart(TelegramBotSender sender, long chatId, long userId) {
-        var items = cartService.getCartItems(userId);
-        SendMessage msg;
-        if (items.isEmpty()) {
-            msg = buildMessage(chatId, MessageFormatter.emptyCartMessage());
-            msg.setReplyMarkup(KeyboardFactory.cartKeyboard(false));
-        } else {
-            msg = buildMessage(chatId,
-                    MessageFormatter.cartMessage(items, cartService.getCartTotal(userId)));
-            msg.setReplyMarkup(KeyboardFactory.cartWithItemsKeyboard(items));
+    private void handleAddToCart(AbsSender bot, CallbackQuery cbq, BotUser user, String data) {
+        Long prodId = Long.parseLong(data.substring(4));
+        cartService.addItem(user.getTelegramId(), prodId);
+        long count = cartService.getCart(user.getTelegramId()).stream().mapToInt(CartItem::getQuantity).sum();
+        BotSender.answerCallback(bot, cbq.getId(), "✅ Добавлено в корзину! (всего " + count + " шт.)", false);
+    }
+
+    private void handleCart(AbsSender bot, CallbackQuery cbq, BotUser user, String data) {
+        Long chatId = cbq.getMessage().getChatId();
+        Integer msgId = cbq.getMessage().getMessageId();
+
+        if (data.startsWith("cart:inc:")) {
+            cartService.addItem(user.getTelegramId(), Long.parseLong(data.substring(9)));
+        } else if (data.startsWith("cart:dec:")) {
+            cartService.removeItem(user.getTelegramId(), Long.parseLong(data.substring(9)));
+        } else if (data.startsWith("cart:del:")) {
+            cartService.deleteItem(user.getTelegramId(), Long.parseLong(data.substring(9)));
+        } else if (data.equals("cart:clear")) {
+            cartService.clearCart(user.getTelegramId());
+            BotSender.answerCallback(bot, cbq.getId(), "🗑 Корзина очищена", false);
         }
-        sender.sendText(msg);
+
+        List<CartItem> items = cartService.getCart(user.getTelegramId());
+        BigDecimal total = cartService.getTotal(items);
+        BotSender.edit(bot, chatId, msgId,
+                MessageFormatter.cart(items, total), KeyboardFactory.cart(items));
+        if (!data.equals("cart:clear")) BotSender.answerCallback(bot, cbq.getId(), "", false);
     }
 
-    private void clearCart(TelegramBotSender sender, long chatId, long userId) {
-        cartService.clearCart(userId);
-        SendMessage msg = buildMessage(chatId, MessageFormatter.cartClearedMessage());
-        msg.setReplyMarkup(KeyboardFactory.cartKeyboard(false));
-        sender.sendText(msg);
-    }
-
-    private void startCheckout(TelegramBotSender sender, long chatId, long userId) {
-        if (cartService.isCartEmpty(userId)) {
-            SendMessage msg = buildMessage(chatId, MessageFormatter.emptyCartMessage());
-            msg.setReplyMarkup(KeyboardFactory.cartKeyboard(false));
-            sender.sendText(msg);
+    private void handleCheckout(AbsSender bot, CallbackQuery cbq, BotUser user) {
+        if (cartService.isEmpty(user.getTelegramId())) {
+            BotSender.answerCallback(bot, cbq.getId(), "Корзина пуста!", true);
             return;
         }
-        sessionService.setState(userId, UserSession.State.AWAITING_NAME);
-        SendMessage msg = buildMessage(chatId, MessageFormatter.checkoutStartMessage());
-        msg.setReplyMarkup(KeyboardFactory.cancelKeyboard());
-        sender.sendText(msg);
+        userService.setState(user.getTelegramId(), "CHECKOUT_DELIVERY");
+        BotSender.answerCallback(bot, cbq.getId(), "", false);
+        BotSender.send(bot, cbq.getMessage().getChatId(),
+                "🚚 *Оформление заказа*\n\nВыберите способ получения:",
+                KeyboardFactory.deliveryTypeKeyboard());
     }
 
-    private void showOrders(TelegramBotSender sender, long chatId, long userId) {
-        var orders = orderService.getOrdersForUser(userId);
-        SendMessage msg;
-        if (orders.isEmpty()) {
-            msg = buildMessage(chatId, MessageFormatter.noOrdersMessage());
-        } else {
-            msg = buildMessage(chatId, MessageFormatter.orderHistoryMessage(orders));
+    private void handleBack(AbsSender bot, CallbackQuery cbq, BotUser user, String data) {
+        String target = data.substring(5);
+        if (target.equals("cats")) {
+            var cats = catalogService.getActiveCategories();
+            BotSender.edit(bot, cbq.getMessage().getChatId(), cbq.getMessage().getMessageId(),
+                    "🍽️ *Выберите категорию:*", KeyboardFactory.categories(cats));
+        } else if (target.startsWith("cat:")) {
+            Long catId = Long.parseLong(target.substring(4));
+            var products = catalogService.getProductsByCategory(catId);
+            var cat = catalogService.findCategory(catId).orElseThrow();
+            BotSender.edit(bot, cbq.getMessage().getChatId(), cbq.getMessage().getMessageId(),
+                    cat.getDisplayName(), KeyboardFactory.products(products, catId));
         }
-        msg.setReplyMarkup(KeyboardFactory.backToMainKeyboard());
-        sender.sendText(msg);
+        BotSender.answerCallback(bot, cbq.getId(), "", false);
     }
 
-    private void showSupport(TelegramBotSender sender, long chatId) {
-        SendMessage msg = buildMessage(chatId, MessageFormatter.supportMessage());
-        msg.setReplyMarkup(KeyboardFactory.backToMainKeyboard());
-        sender.sendText(msg);
+    private void handleOrderAction(AbsSender bot, CallbackQuery cbq, BotUser user, String data) {
+        // order:refresh:ID
+        if (data.startsWith("order:refresh:")) {
+            Long orderId = Long.parseLong(data.substring(14));
+            orderService.findById(orderId).ifPresent(o ->
+                    BotSender.edit(bot, cbq.getMessage().getChatId(), cbq.getMessage().getMessageId(),
+                            MessageFormatter.orderCard(o), KeyboardFactory.orderStatus(o.getId()))
+            );
+        }
+        BotSender.answerCallback(bot, cbq.getId(), "Обновлено", false);
     }
 
-    private void cancelCheckout(TelegramBotSender sender, long chatId, long userId) {
-        sessionService.resetCheckout(userId);
-        SendMessage msg = buildMessage(chatId, MessageFormatter.checkoutCancelledMessage());
-        msg.setReplyMarkup(KeyboardFactory.mainMenuKeyboard());
-        sender.sendText(msg);
-    }
+    private void handleAdmin(AbsSender bot, CallbackQuery cbq, BotUser user, String data) {
+        if (!user.isAdmin()) {
+            BotSender.answerCallback(bot, cbq.getId(), "⛔ Нет доступа", true);
+            return;
+        }
 
-    private SendMessage buildMessage(long chatId, String text) {
-        SendMessage msg = new SendMessage();
-        msg.setChatId(chatId);
-        msg.setText(text);
-        msg.setParseMode("HTML");
-        msg.disableWebPagePreview();
-        return msg;
+        if (data.startsWith("admin:status:")) {
+            // admin:status:ORDER_ID:STATUS
+            String[] parts = data.split(":");
+            Long orderId = Long.parseLong(parts[2]);
+            Order.Status newStatus = Order.Status.valueOf(parts[3]);
+            Order updated = orderService.updateStatus(orderId, newStatus, null);
+
+            // Notify user
+            notifier.sendToUser(bot, updated.getUser().getTelegramId(),
+                    "📦 *Статус заказа #" + orderId + " изменён*\n" +
+                            "Новый статус: " + newStatus.getLabel());
+
+            BotSender.edit(bot, cbq.getMessage().getChatId(), cbq.getMessage().getMessageId(),
+                    NotificationService.buildOrderNotification(updated),
+                    KeyboardFactory.adminOrderActions(orderId, newStatus));
+            BotSender.answerCallback(bot, cbq.getId(), "✅ Статус обновлён", false);
+
+        } else if (data.startsWith("admin:prod:toggle:")) {
+            Long prodId = Long.parseLong(data.substring(18));
+            catalogService.toggleProductAvailability(prodId);
+            BotSender.answerCallback(bot, cbq.getId(), "✅ Доступность обновлена", false);
+            catalogService.findProduct(prodId).ifPresent(p ->
+                    BotSender.edit(bot, cbq.getMessage().getChatId(), cbq.getMessage().getMessageId(),
+                            MessageFormatter.product(p), KeyboardFactory.adminProductActions(p))
+            );
+
+        } else if (data.startsWith("admin:prod:list")) {
+            var products = catalogService.getActiveCategories().stream()
+                    .flatMap(c -> catalogService.getProductsByCategory(c.getId()).stream())
+                    .toList();
+            StringBuilder sb = new StringBuilder("🛍️ *Все товары:*\n\n");
+            products.forEach(p -> sb.append(p.isAvailable() ? "🟢" : "🔴")
+                    .append(" ").append(p.getName()).append(" — ").append(p.formatPrice()).append("\n"));
+            BotSender.edit(bot, cbq.getMessage().getChatId(), cbq.getMessage().getMessageId(),
+                    sb.toString(), null);
+            BotSender.answerCallback(bot, cbq.getId(), "", false);
+        }
     }
 }

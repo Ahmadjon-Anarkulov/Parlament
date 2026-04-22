@@ -1,7 +1,8 @@
 package com.parlament.util;
 
-import com.parlament.model.Category;
 import com.parlament.model.CartItem;
+import com.parlament.model.Category;
+import com.parlament.model.Order;
 import com.parlament.model.Product;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
@@ -14,125 +15,171 @@ import java.util.List;
 
 public class KeyboardFactory {
 
-    public static final String CB_CATALOG       = "catalog";
-    public static final String CB_CART          = "cart";
-    public static final String CB_ORDERS        = "orders";
-    public static final String CB_SUPPORT       = "support";
-    public static final String CB_BACK_MAIN     = "back_main";
-    public static final String CB_CHECKOUT      = "checkout";
-    public static final String CB_CLEAR_CART    = "clear_cart";
-    public static final String CB_CANCEL        = "cancel";
+    // ─── Reply keyboards ──────────────────────────────────────────────────────
 
-    public static final String CB_CAT_PREFIX    = "cat_";
-    public static final String CB_PROD_PREFIX   = "prod_";
-    public static final String CB_ADD_PREFIX    = "add_";
-    public static final String CB_REMOVE_PREFIX = "remove_";
-    public static final String CB_BACK_CAT      = "back_cat_";
-
-    public static ReplyKeyboardMarkup mainMenuKeyboard() {
-        KeyboardRow row1 = new KeyboardRow();
-        row1.add(new KeyboardButton("🧥 Каталог"));
-        row1.add(new KeyboardButton("🛒 Корзина"));
-
-        KeyboardRow row2 = new KeyboardRow();
-        row2.add(new KeyboardButton("📦 Мои заказы"));
-        row2.add(new KeyboardButton("📞 Поддержка"));
-
-        ReplyKeyboardMarkup keyboard = new ReplyKeyboardMarkup();
-        keyboard.setKeyboard(List.of(row1, row2));
-        keyboard.setResizeKeyboard(true);
-        keyboard.setOneTimeKeyboard(false);
-        keyboard.setSelective(false);
-        return keyboard;
+    public static ReplyKeyboardMarkup mainMenu() {
+        return reply(
+                row("🍽️ Меню", "🛒 Корзина"),
+                row("📋 Мои заказы", "ℹ️ О нас"),
+                row("📞 Контакты", "⚙️ Профиль")
+        );
     }
 
-    public static InlineKeyboardMarkup catalogKeyboard() {
+    public static ReplyKeyboardMarkup adminMenu() {
+        return reply(
+                row("📊 Статистика", "📦 Заказы"),
+                row("🛍️ Каталог", "👥 Пользователи"),
+                row("⚙️ Настройки", "📢 Рассылка"),
+                row("◀️ Главное меню")
+        );
+    }
+
+    public static ReplyKeyboardMarkup backOnly() {
+        return reply(row("◀️ Назад"));
+    }
+
+    public static ReplyKeyboardMarkup cancelOnly() {
+        return reply(row("❌ Отмена"));
+    }
+
+    public static ReplyKeyboardMarkup contactKeyboard() {
+        KeyboardButton btn = new KeyboardButton("📱 Поделиться номером");
+        btn.setRequestContact(true);
+        KeyboardRow row = new KeyboardRow();
+        row.add(btn);
+        KeyboardRow back = new KeyboardRow();
+        back.add("◀️ Назад");
+        ReplyKeyboardMarkup kb = new ReplyKeyboardMarkup(List.of(row, back));
+        kb.setResizeKeyboard(true);
+        return kb;
+    }
+
+    public static ReplyKeyboardMarkup deliveryTypeKeyboard() {
+        return reply(
+                row("🏪 Самовывоз", "🚴 Доставка"),
+                row("◀️ Отмена")
+        );
+    }
+
+    // ─── Inline keyboards ─────────────────────────────────────────────────────
+
+    public static InlineKeyboardMarkup categories(List<Category> cats) {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-        for (Category cat : Category.values()) {
-            rows.add(List.of(
-                button(cat.getDisplayName(), CB_CAT_PREFIX + cat.getCallbackPrefix())
-            ));
+        for (Category c : cats) {
+            rows.add(List.of(btn(c.getDisplayName(), "cat:" + c.getId())));
         }
-        rows.add(List.of(button("🏠 Главное меню", CB_BACK_MAIN)));
-        return markup(rows);
+        return inline(rows);
     }
 
-    public static InlineKeyboardMarkup productListKeyboard(List<Product> products, Category category) {
+    public static InlineKeyboardMarkup products(List<Product> products, Long categoryId) {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
         for (Product p : products) {
-            rows.add(List.of(
-                button(p.getName() + " — " + p.getFormattedPrice(), CB_PROD_PREFIX + p.getId())
-            ));
+            String label = p.getName() + " — " + p.formatPrice();
+            rows.add(List.of(btn(label, "prod:" + p.getId())));
         }
-        rows.add(List.of(button("◀ Назад к категориям", CB_CATALOG)));
-        return markup(rows);
+        rows.add(List.of(btn("◀️ К категориям", "back:cats")));
+        return inline(rows);
     }
 
-    public static InlineKeyboardMarkup productDetailKeyboard(Product product) {
-        return markup(List.of(
-            List.of(button("🛒 Добавить в корзину", CB_ADD_PREFIX + product.getId())),
-            List.of(button("◀ Назад к категории", CB_CAT_PREFIX + product.getCategory().getCallbackPrefix())),
-            List.of(button("🏠 Главное меню", CB_BACK_MAIN))
+    public static InlineKeyboardMarkup productActions(Product p) {
+        return inline(List.of(
+                List.of(
+                        btn("➕ В корзину", "add:" + p.getId()),
+                        btn("◀️ Назад", "back:cat:" + p.getCategory().getId())
+                )
         ));
     }
 
-    public static InlineKeyboardMarkup cartKeyboard(boolean hasItems) {
-        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-        if (hasItems) {
-            rows.add(List.of(button("✅ Оформить заказ", CB_CHECKOUT)));
-            rows.add(List.of(button("🗑 Очистить корзину", CB_CLEAR_CART)));
-        }
-        rows.add(List.of(button("🧥 Перейти в каталог", CB_CATALOG)));
-        rows.add(List.of(button("🏠 Главное меню", CB_BACK_MAIN)));
-        return markup(rows);
-    }
-
-    public static InlineKeyboardButton removeItemButton(CartItem item) {
-        return button("❌ Удалить " + item.getProduct().getName(),
-                CB_REMOVE_PREFIX + item.getProduct().getId());
-    }
-
-    public static InlineKeyboardMarkup cartWithItemsKeyboard(List<CartItem> items) {
+    public static InlineKeyboardMarkup cart(List<CartItem> items) {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
         for (CartItem item : items) {
-            rows.add(List.of(removeItemButton(item)));
+            rows.add(List.of(
+                    btn("➖", "cart:dec:" + item.getProduct().getId()),
+                    btn(item.getProduct().getName() + " ×" + item.getQuantity(), "cart:info:" + item.getProduct().getId()),
+                    btn("➕", "cart:inc:" + item.getProduct().getId()),
+                    btn("🗑", "cart:del:" + item.getProduct().getId())
+            ));
         }
-        rows.add(List.of(button("✅ Оформить заказ", CB_CHECKOUT)));
-        rows.add(List.of(button("🗑 Очистить всё", CB_CLEAR_CART)));
-        rows.add(List.of(button("🏠 Главное меню", CB_BACK_MAIN)));
-        return markup(rows);
+        if (!items.isEmpty()) {
+            rows.add(List.of(
+                    btn("✅ Оформить заказ", "checkout"),
+                    btn("🗑 Очистить", "cart:clear")
+            ));
+        }
+        rows.add(List.of(btn("🍽️ В меню", "back:cats")));
+        return inline(rows);
     }
 
-    public static InlineKeyboardMarkup cancelKeyboard() {
-        return markup(List.of(
-            List.of(button("❌ Отменить оформление", CB_CANCEL))
+    public static InlineKeyboardMarkup orderStatus(Long orderId) {
+        return inline(List.of(
+                List.of(btn("🔄 Обновить статус", "order:refresh:" + orderId))
         ));
     }
 
-    public static InlineKeyboardMarkup postOrderKeyboard() {
-        return markup(List.of(
-            List.of(button("📦 Мои заказы", CB_ORDERS)),
-            List.of(button("🧥 Продолжить покупки", CB_CATALOG)),
-            List.of(button("🏠 Главное меню", CB_BACK_MAIN))
+    public static InlineKeyboardMarkup adminOrderActions(Long orderId, Order.Status current) {
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        List<InlineKeyboardButton> statusRow = new ArrayList<>();
+        for (Order.Status s : Order.Status.values()) {
+            if (s != current) {
+                statusRow.add(btn(s.getLabel(), "admin:status:" + orderId + ":" + s.name()));
+                if (statusRow.size() == 2) { rows.add(new ArrayList<>(statusRow)); statusRow.clear(); }
+            }
+        }
+        if (!statusRow.isEmpty()) rows.add(statusRow);
+        rows.add(List.of(btn("💬 Комментарий", "admin:comment:" + orderId)));
+        return inline(rows);
+    }
+
+    public static InlineKeyboardMarkup adminCatalogMenu() {
+        return inline(List.of(
+                List.of(btn("📂 Категории", "admin:cat:list"), btn("🍽️ Товары", "admin:prod:list")),
+                List.of(btn("➕ Новая категория", "admin:cat:new"), btn("➕ Новый товар", "admin:prod:new"))
         ));
     }
 
-    public static InlineKeyboardMarkup backToMainKeyboard() {
-        return markup(List.of(
-            List.of(button("🏠 Главное меню", CB_BACK_MAIN))
+    public static InlineKeyboardMarkup adminProductActions(Product p) {
+        return inline(List.of(
+                List.of(
+                        btn(p.isAvailable() ? "🔴 Скрыть" : "🟢 Показать", "admin:prod:toggle:" + p.getId()),
+                        btn("✏️ Изменить цену", "admin:prod:price:" + p.getId())
+                ),
+                List.of(btn("◀️ К списку", "admin:prod:list"))
         ));
     }
 
-    private static InlineKeyboardButton button(String text, String callbackData) {
-        InlineKeyboardButton btn = new InlineKeyboardButton();
-        btn.setText(text);
-        btn.setCallbackData(callbackData);
-        return btn;
+    public static InlineKeyboardMarkup pagination(String prefix, int page, long total, int pageSize) {
+        int totalPages = (int) Math.ceil((double) total / pageSize);
+        List<InlineKeyboardButton> row = new ArrayList<>();
+        if (page > 0) row.add(btn("◀️", prefix + ":" + (page - 1)));
+        row.add(btn((page + 1) + "/" + totalPages, "noop"));
+        if (page < totalPages - 1) row.add(btn("▶️", prefix + ":" + (page + 1)));
+        return inline(List.of(row));
     }
 
-    private static InlineKeyboardMarkup markup(List<List<InlineKeyboardButton>> rows) {
-        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-        markup.setKeyboard(rows);
-        return markup;
+    // ─── Helpers ──────────────────────────────────────────────────────────────
+
+    private static ReplyKeyboardMarkup reply(KeyboardRow... rows) {
+        ReplyKeyboardMarkup kb = new ReplyKeyboardMarkup(List.of(rows));
+        kb.setResizeKeyboard(true);
+        kb.setSelective(true);
+        return kb;
+    }
+
+    private static KeyboardRow row(String... labels) {
+        KeyboardRow r = new KeyboardRow();
+        for (String l : labels) r.add(new KeyboardButton(l));
+        return r;
+    }
+
+    private static InlineKeyboardMarkup inline(List<List<InlineKeyboardButton>> rows) {
+        InlineKeyboardMarkup kb = new InlineKeyboardMarkup();
+        kb.setKeyboard(rows);
+        return kb;
+    }
+
+    private static InlineKeyboardButton btn(String text, String data) {
+        InlineKeyboardButton b = new InlineKeyboardButton(text);
+        b.setCallbackData(data);
+        return b;
     }
 }

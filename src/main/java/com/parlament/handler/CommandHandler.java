@@ -1,107 +1,95 @@
 package com.parlament.handler;
 
-import com.parlament.service.CartService;
+import com.parlament.model.BotUser;
 import com.parlament.service.OrderService;
-import com.parlament.service.SessionService;
-import com.parlament.telegram.TelegramBotSender;
+import com.parlament.service.SettingsService;
+import com.parlament.service.UserService;
+import com.parlament.util.BotSender;
 import com.parlament.util.KeyboardFactory;
 import com.parlament.util.MessageFormatter;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Message;
-import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.bots.AbsSender;
 
 @Component
+@RequiredArgsConstructor
 public class CommandHandler {
 
-    private static final Logger log = LoggerFactory.getLogger(CommandHandler.class);
-
-    private final CartService cartService;
+    private final UserService userService;
     private final OrderService orderService;
-    private final SessionService sessionService;
+    private final SettingsService settings;
 
-    public CommandHandler(CartService cartService, OrderService orderService, SessionService sessionService) {
-        this.cartService = cartService;
-        this.orderService = orderService;
-        this.sessionService = sessionService;
-    }
-
-    public void handle(Update update, TelegramBotSender sender) {
-        Message message = update.getMessage();
-        long chatId = message.getChatId();
-        long userId = message.getFrom().getId();
-        String text = message.getText().trim();
-        String command = text.split("\\s+")[0].toLowerCase();
-
-        log.debug("Команда от пользователя {}: {}", userId, command);
-
-        switch (command) {
-            case "/start"   -> handleStart(sender, chatId, message.getFrom().getFirstName(), userId);
-            case "/help"    -> handleHelp(sender, chatId);
-            case "/catalog" -> sender.sendText(buildCatalogMessage(chatId));
-            case "/cart"    -> sender.sendText(buildCartMessage(chatId, userId));
-            case "/orders"  -> sender.sendText(buildOrdersMessage(chatId, userId));
-            default         -> sender.sendText(buildMessage(chatId, MessageFormatter.unknownCommandMessage()));
+    public void handle(AbsSender bot, Message msg, BotUser user) {
+        String cmd = msg.getText().split(" ")[0].toLowerCase().replace("@" + getUsername(bot), "");
+        switch (cmd) {
+            case "/start" -> handleStart(bot, msg, user);
+            case "/menu"  -> handleMenu(bot, msg, user);
+            case "/admin" -> handleAdmin(bot, msg, user);
+            case "/help"  -> handleHelp(bot, msg, user);
+            case "/cancel" -> handleCancel(bot, msg, user);
+            case "/orders" -> handleOrders(bot, msg, user);
+            default -> BotSender.send(bot, msg.getChatId(), "Неизвестная команда. Попробуйте /help");
         }
     }
 
-    private void handleStart(TelegramBotSender sender, long chatId, String firstName, long userId) {
-        sessionService.resetCheckout(userId);
-        SendMessage msg = buildMessage(chatId, MessageFormatter.welcomeMessage(firstName));
-        msg.setReplyMarkup(KeyboardFactory.mainMenuKeyboard());
-        sender.sendText(msg);
+    private void handleStart(AbsSender bot, Message msg, BotUser user) {
+        userService.setState(user.getTelegramId(), "MAIN");
+        String welcome = settings.getWelcomeMessage();
+        BotSender.send(bot, msg.getChatId(),
+                "👋 Привет, *" + user.getDisplayName() + "*!\n\n" + welcome,
+                user.isAdmin() ? KeyboardFactory.adminMenu() : KeyboardFactory.mainMenu());
     }
 
-    private void handleHelp(TelegramBotSender sender, long chatId) {
-        String helpText = "🎩 <b>Parlament Bot — Помощь</b>\n\n"
-                + "<b>Команды:</b>\n"
-                + "/start — Вернуться в главное меню\n"
-                + "/catalog — Открыть каталог\n"
-                + "/cart — Открыть корзину\n"
-                + "/orders — История заказов\n"
-                + "/help — Показать это сообщение";
-        sender.sendText(buildMessage(chatId, helpText));
+    private void handleMenu(AbsSender bot, Message msg, BotUser user) {
+        userService.setState(user.getTelegramId(), "MAIN");
+        BotSender.send(bot, msg.getChatId(),
+                "Выберите раздел:", KeyboardFactory.mainMenu());
     }
 
-    private SendMessage buildCatalogMessage(long chatId) {
-        SendMessage msg = buildMessage(chatId, MessageFormatter.catalogMessage());
-        msg.setReplyMarkup(KeyboardFactory.catalogKeyboard());
-        return msg;
-    }
-
-    private SendMessage buildCartMessage(long chatId, long userId) {
-        var items = cartService.getCartItems(userId);
-        SendMessage msg;
-        if (items.isEmpty()) {
-            msg = buildMessage(chatId, MessageFormatter.emptyCartMessage());
-            msg.setReplyMarkup(KeyboardFactory.cartKeyboard(false));
-        } else {
-            msg = buildMessage(chatId, MessageFormatter.cartMessage(items, cartService.getCartTotal(userId)));
-            msg.setReplyMarkup(KeyboardFactory.cartWithItemsKeyboard(items));
+    private void handleAdmin(AbsSender bot, Message msg, BotUser user) {
+        if (!userService.isAdmin(user.getTelegramId())) {
+            BotSender.send(bot, msg.getChatId(), "⛔ Нет доступа");
+            return;
         }
-        return msg;
+        userService.setState(user.getTelegramId(), "ADMIN");
+        BotSender.send(bot, msg.getChatId(),
+                "🔧 *Панель администратора*\nВыберите раздел:",
+                KeyboardFactory.adminMenu());
     }
 
-    private SendMessage buildOrdersMessage(long chatId, long userId) {
-        var orders = orderService.getOrdersForUser(userId);
-        SendMessage msg;
+    private void handleHelp(AbsSender bot, Message msg, BotUser user) {
+        String help = "ℹ️ *Помощь*\n\n" +
+                "🍽️ *Меню* — просмотр и заказ блюд\n" +
+                "🛒 *Корзина* — ваша корзина\n" +
+                "📋 *Мои заказы* — история заказов\n" +
+                "📞 *Контакты* — наши контакты\n\n" +
+                "*Команды:*\n" +
+                "/start — Главное меню\n" +
+                "/menu — Меню ресторана\n" +
+                "/orders — Мои заказы\n" +
+                "/help — Эта справка";
+        BotSender.send(bot, msg.getChatId(), help, KeyboardFactory.mainMenu());
+    }
+
+    private void handleCancel(AbsSender bot, Message msg, BotUser user) {
+        userService.setState(user.getTelegramId(), "MAIN");
+        BotSender.send(bot, msg.getChatId(), "Действие отменено", KeyboardFactory.mainMenu());
+    }
+
+    private void handleOrders(AbsSender bot, Message msg, BotUser user) {
+        var orders = orderService.getUserOrders(user.getTelegramId());
         if (orders.isEmpty()) {
-            msg = buildMessage(chatId, MessageFormatter.noOrdersMessage());
-        } else {
-            msg = buildMessage(chatId, MessageFormatter.orderHistoryMessage(orders));
+            BotSender.send(bot, msg.getChatId(), "У вас пока нет заказов", KeyboardFactory.mainMenu());
+            return;
         }
-        msg.setReplyMarkup(KeyboardFactory.backToMainKeyboard());
-        return msg;
+        orders.stream().limit(5).forEach(o ->
+                BotSender.send(bot, msg.getChatId(), MessageFormatter.orderCard(o),
+                        KeyboardFactory.orderStatus(o.getId()))
+        );
     }
 
-    private SendMessage buildMessage(long chatId, String text) {
-        SendMessage msg = new SendMessage();
-        msg.setChatId(chatId);
-        msg.setText(text);
-        msg.setParseMode("HTML");
-        msg.disableWebPagePreview();
-        return msg;
+    private String getUsername(AbsSender bot) {
+        try { return bot.getMe().getUserName(); } catch (Exception e) { return ""; }
     }
 }

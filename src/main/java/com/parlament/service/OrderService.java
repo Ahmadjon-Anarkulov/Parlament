@@ -1,72 +1,112 @@
 package com.parlament.service;
 
-import com.parlament.model.CartItem;
-import com.parlament.model.Order;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.parlament.model.*;
+import com.parlament.repository.BotUserRepository;
+import com.parlament.repository.OrderRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 
-/**
- * Manages order creation and history for all users.
- * In-memory storage using ConcurrentHashMap.
- */
+@Slf4j
 @Service
+@RequiredArgsConstructor
 public class OrderService {
 
-    private static final Logger log = LoggerFactory.getLogger(OrderService.class);
+    private final OrderRepository orderRepo;
+    private final BotUserRepository userRepo;
+    private final CartService cartService;
 
-    // Map: orderId → Order (global order registry)
-    private final Map<String, Order> allOrders = new ConcurrentHashMap<>();
+    @Transactional
+    public Order createOrder(Long telegramId, Order.DeliveryType deliveryType,
+                              String address, String phone, String comment) {
+        BotUser user = userRepo.findByTelegramId(telegramId).orElseThrow();
+        List<CartItem> cartItems = cartService.getCart(telegramId);
 
-    // Map: userId → list of order IDs (for per-user history lookup)
-    private final Map<Long, List<String>> userOrderIndex = new ConcurrentHashMap<>();
+        if (cartItems.isEmpty()) throw new IllegalStateException("Cart is empty");
 
-    /**
-     * Creates and persists a new order from the given cart items.
-     */
-    public Order createOrder(long userId, List<CartItem> items,
-                              String customerName, String phone, String address) {
-        Order order = new Order(userId, items, customerName, phone, address);
+        BigDecimal total = cartService.getTotal(cartItems);
 
-        allOrders.put(order.getOrderId(), order);
-        userOrderIndex.computeIfAbsent(userId, id -> new ArrayList<>())
-                      .add(order.getOrderId());
+        Order order = Order.builder()
+                .user(user)
+                .status(Order.Status.PENDING)
+                .totalAmount(total)
+                .deliveryType(deliveryType)
+                .deliveryAddress(address)
+                .phone(phone)
+                .comment(comment)
+                .build();
 
-        log.info("Created order {} for user {} — total: {}", order.getOrderId(), userId, order.getFormattedTotal());
-        return order;
+        List<OrderItem> items = cartItems.stream()
+                .map(ci -> OrderItem.builder()
+                        .order(order)
+                        .product(ci.getProduct())
+                        .productName(ci.getProduct().getName())
+                        .price(ci.getProduct().getPrice())
+                        .quantity(ci.getQuantity())
+                        .subtotal(ci.getProduct().getPrice().multiply(BigDecimal.valueOf(ci.getQuantity())))
+                        .build())
+                .toList();
+        order.setItems(items);
+
+        Order saved = orderRepo.save(order);
+
+        // Update user stats
+        user.setOrdersCount(user.getOrdersCount() + 1);
+        user.setTotalSpent(user.getTotalSpent().add(total));
+        userRepo.save(user);
+
+        // Clear cart
+        cartService.clearCart(telegramId);
+
+        log.info("Order #{} created for user {} — {} сум", saved.getId(), user.getDisplayName(), total);
+        return saved;
     }
 
-    /**
-     * Returns all orders for a specific user, newest first.
-     */
-    public List<Order> getOrdersForUser(long userId) {
-        List<String> orderIds = userOrderIndex.get(userId);
-        if (orderIds == null || orderIds.isEmpty()) return Collections.emptyList();
-
-        // Collect and sort newest first
-        return orderIds.stream()
-                .map(allOrders::get)
-                .filter(Objects::nonNull)
-                .sorted(Comparator.comparing(Order::getCreatedAt).reversed())
-                .collect(Collectors.toList());
+    @Transactional
+    public Order updateStatus(Long orderId, Order.Status newStatus, String adminComment) {
+        Order order = orderRepo.findById(orderId).orElseThrow();
+        order.setStatus(newStatus);
+        if (adminComment != null) order.setAdminComment(adminComment);
+        if (newStatus == Order.Status.COMPLETED) order.setCompletedAt(LocalDateTime.now());
+        return orderRepo.save(order);
     }
 
-    /**
-     * Returns a specific order by its ID.
-     */
-    public Optional<Order> findById(String orderId) {
-        return Optional.ofNullable(allOrders.get(orderId));
+    @Transactional(readOnly = true)
+    public List<Order> getUserOrders(Long telegramId) {
+        return userRepo.findByTelegramId(telegramId)
+                .map(u -> orderRepo.findByUserIdOrderByCreatedAtDesc(u.getId()))
+                .orElse(List.of());
     }
 
-    /**
-     * Returns the total number of orders placed by a user.
-     */
-    public int getOrderCount(long userId) {
-        List<String> orderIds = userOrderIndex.get(userId);
-        return orderIds == null ? 0 : orderIds.size();
+    @Transactional(readOnly = true)
+    public Optional<Order> findById(Long id) {
+        return orderRepo.findById(id);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<Order> getPendingOrders(int page) {
+        return orderRepo.findByStatusOrderByCreatedAtDesc(Order.Status.PENDING, PageRequest.of(page, 10));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<Order> getAllOrders(int page) {
+        return orderRepo.findAllByOrderByCreatedAtDesc(PageRequest.of(page, 10));
+    }
+
+    // Stats
+    public long countPending()  { return orderRepo.countByStatus(Order.Status.PENDING); }
+    public long countTotal()    { return orderRepo.count(); }
+    public long countToday()    { return orderRepo.countByCreatedAtAfter(LocalDateTime.now().toLocalDate().atStartOfDay()); }
+    public BigDecimal totalRevenue() { return orderRepo.sumCompletedRevenue(); }
+    public BigDecimal revenueToday() {
+        return orderRepo.sumRevenueAfter(LocalDateTime.now().toLocalDate().atStartOfDay());
     }
 }

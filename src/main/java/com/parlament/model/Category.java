@@ -1,27 +1,52 @@
 package com.parlament.model;
 
-public enum Category {
+import jakarta.persistence.*;
+import lombok.*;
 
-    SUITS("👔 Костюмы", "suits"),
-    SHIRTS("👕 Рубашки", "shirts"),
-    SHOES("👞 Обувь", "shoes"),
-    ACCESSORIES("⌚ Аксессуары", "accessories");
+import java.time.LocalDateTime;
+import java.util.List;
 
-    private final String displayName;
-    private final String callbackPrefix;
+@Entity
+@Table(name = "categories")
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@EqualsAndHashCode(of = "id")
+public class Category {
 
-    Category(String displayName, String callbackPrefix) {
-        this.displayName = displayName;
-        this.callbackPrefix = callbackPrefix;
-    }
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
-    public String getDisplayName() { return displayName; }
-    public String getCallbackPrefix() { return callbackPrefix; }
+    @Column(nullable = false)
+    private String name;
 
-    public static Category fromCallbackPrefix(String prefix) {
-        for (Category c : values()) {
-            if (c.callbackPrefix.equals(prefix)) return c;
-        }
-        return null;
+    @Column
+    private String description;
+
+    @Column
+    @Builder.Default
+    private String emoji = "🍽️";
+
+    @Column(name = "sort_order")
+    @Builder.Default
+    private int sortOrder = 0;
+
+    @Column(name = "is_active", nullable = false)
+    @Builder.Default
+    private boolean active = true;
+
+    @Column(name = "created_at", updatable = false)
+    private LocalDateTime createdAt;
+
+    @OneToMany(mappedBy = "category", fetch = FetchType.LAZY)
+    private List<Product> products;
+
+    @PrePersist
+    protected void onCreate() { createdAt = LocalDateTime.now(); }
+
+    public String getDisplayName() {
+        return emoji != null ? emoji + " " + name : name;
     }
 }

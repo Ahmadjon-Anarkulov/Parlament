@@ -1,73 +1,101 @@
 package com.parlament.model;
 
+import jakarta.persistence.*;
+import lombok.*;
+import org.hibernate.annotations.UpdateTimestamp;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 
+@Entity
+@Table(name = "orders")
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@EqualsAndHashCode(of = "id")
 public class Order {
 
     public enum Status {
         PENDING("⏳ Ожидает"),
         CONFIRMED("✅ Подтверждён"),
-        PROCESSING("🔄 В обработке"),
-        SHIPPED("🚚 Отправлен"),
-        DELIVERED("📦 Доставлен"),
+        PREPARING("👨‍🍳 Готовится"),
+        READY("🔔 Готов"),
+        DELIVERING("🚴 В пути"),
+        COMPLETED("✔️ Выполнен"),
         CANCELLED("❌ Отменён");
 
-        private final String displayName;
-        Status(String displayName) { this.displayName = displayName; }
-        public String getDisplayName() { return displayName; }
+        private final String label;
+        Status(String label) { this.label = label; }
+        public String getLabel() { return label; }
     }
 
-    private final String orderId;
-    private final long userId;
-    private final List<CartItem> items;
-    private final String customerName;
-    private final String phoneNumber;
-    private final String deliveryAddress;
-    private final LocalDateTime createdAt;
-    private Status status;
+    public enum DeliveryType {
+        PICKUP("🏪 Самовывоз"),
+        DELIVERY("🚴 Доставка");
 
-    public Order(long userId, List<CartItem> items,
-                 String customerName, String phoneNumber, String deliveryAddress) {
-        this.orderId = generateOrderId();
-        this.userId = userId;
-        this.items = new ArrayList<>(items);
-        this.customerName = customerName;
-        this.phoneNumber = phoneNumber;
-        this.deliveryAddress = deliveryAddress;
-        this.createdAt = LocalDateTime.now();
-        this.status = Status.CONFIRMED;
+        private final String label;
+        DeliveryType(String label) { this.label = label; }
+        public String getLabel() { return label; }
     }
 
-    private String generateOrderId() {
-        return "PRL-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
-    }
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
-    public BigDecimal getTotalAmount() {
-        return items.stream()
-                .map(CartItem::getTotalPrice)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-    }
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    private BotUser user;
 
-    public String getFormattedTotal() {
-        return String.format("$%,.2f", getTotalAmount());
-    }
+    @Column(nullable = false)
+    @Enumerated(EnumType.STRING)
+    @Builder.Default
+    private Status status = Status.PENDING;
 
-    public String getFormattedCreatedAt() {
-        return createdAt.format(DateTimeFormatter.ofPattern("dd.MM.yyyy, HH:mm"));
-    }
+    @Column(name = "total_amount", nullable = false, precision = 12, scale = 2)
+    private BigDecimal totalAmount;
 
-    public String getOrderId() { return orderId; }
-    public long getUserId() { return userId; }
-    public List<CartItem> getItems() { return items; }
-    public String getCustomerName() { return customerName; }
-    public String getPhoneNumber() { return phoneNumber; }
-    public String getDeliveryAddress() { return deliveryAddress; }
-    public LocalDateTime getCreatedAt() { return createdAt; }
-    public Status getStatus() { return status; }
-    public void setStatus(Status status) { this.status = status; }
+    @Column(name = "delivery_type", nullable = false)
+    @Enumerated(EnumType.STRING)
+    @Builder.Default
+    private DeliveryType deliveryType = DeliveryType.PICKUP;
+
+    @Column(name = "delivery_address", columnDefinition = "TEXT")
+    private String deliveryAddress;
+
+    @Column(columnDefinition = "TEXT")
+    private String comment;
+
+    @Column
+    private String phone;
+
+    @Column(name = "payment_method")
+    @Builder.Default
+    private String paymentMethod = "CASH";
+
+    @Column(name = "admin_comment", columnDefinition = "TEXT")
+    private String adminComment;
+
+    @Column(name = "created_at", updatable = false)
+    private LocalDateTime createdAt;
+
+    @UpdateTimestamp
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+
+    @Column(name = "completed_at")
+    private LocalDateTime completedAt;
+
+    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
+    @Builder.Default
+    private List<OrderItem> items = new ArrayList<>();
+
+    @PrePersist
+    protected void onCreate() { createdAt = LocalDateTime.now(); }
+
+    public String formatTotal() {
+        return String.format("%,.0f сум", totalAmount);
+    }
 }

@@ -1,22 +1,30 @@
-FROM maven:3.9.9-eclipse-temurin-21 AS build
-WORKDIR /workspace
-
-COPY pom.xml .
-RUN mvn -q -e -DskipTests dependency:go-offline
-
-COPY src ./src
-RUN mvn -q -e -DskipTests package
-
-FROM eclipse-temurin:21-jre
+# ── Stage 1: Build ──────────────────────────────────────────────────────────
+FROM maven:3.9.6-eclipse-temurin-21 AS builder
 WORKDIR /app
 
-RUN addgroup --system app && adduser --system --ingroup app app
-USER app
+# Cache dependencies first
+COPY pom.xml .
+RUN mvn dependency:go-offline -q
 
-COPY --from=build /workspace/target/*.jar /app/app.jar
+# Build
+COPY src ./src
+RUN mvn clean package -DskipTests -q
 
-ENV JAVA_OPTS=""
+# ── Stage 2: Runtime ─────────────────────────────────────────────────────────
+FROM eclipse-temurin:21-jre-jammy
+WORKDIR /app
+
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+COPY --from=builder /app/target/parlament-bot.jar app.jar
+
+RUN chown appuser:appuser app.jar
+USER appuser
+
 EXPOSE 8080
 
-CMD ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]
-
+ENTRYPOINT ["java", \
+  "-XX:+UseContainerSupport", \
+  "-XX:MaxRAMPercentage=75.0", \
+  "-Djava.security.egd=file:/dev/./urandom", \
+  "-jar", "app.jar"]

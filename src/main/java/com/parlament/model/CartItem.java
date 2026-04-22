@@ -1,49 +1,38 @@
 package com.parlament.model;
 
-import java.math.BigDecimal;
+import jakarta.persistence.*;
+import lombok.*;
 
-/**
- * Represents a single item in a user's shopping cart.
- */
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "cart_items")
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@EqualsAndHashCode(of = "id")
 public class CartItem {
 
-    private final Product product;
-    private int quantity;
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
-    public CartItem(Product product) {
-        this.product = product;
-        this.quantity = 1;
-    }
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    private BotUser user;
 
-    public CartItem(Product product, int quantity) {
-        this.product = product;
-        this.quantity = quantity;
-    }
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "product_id", nullable = false)
+    private Product product;
 
-    public Product getProduct() { return product; }
-    public int getQuantity() { return quantity; }
+    @Column(nullable = false)
+    @Builder.Default
+    private int quantity = 1;
 
-    public void incrementQuantity() { this.quantity++; }
-    public void decrementQuantity() { if (this.quantity > 0) this.quantity--; }
-    public void setQuantity(int quantity) { this.quantity = quantity; }
+    @Column(name = "added_at")
+    private LocalDateTime addedAt;
 
-    /**
-     * Returns the total price for this cart line (price × quantity).
-     */
-    public BigDecimal getTotalPrice() {
-        return product.getPrice().multiply(BigDecimal.valueOf(quantity));
-    }
-
-    /**
-     * Returns a formatted subtotal string.
-     */
-    public String getFormattedTotalPrice() {
-        return String.format("$%,.2f", getTotalPrice());
-    }
-
-    @Override
-    public String toString() {
-        return String.format("CartItem{product='%s', qty=%d, total=%s}",
-                product.getName(), quantity, getFormattedTotalPrice());
-    }
+    @PrePersist
+    protected void onCreate() { addedAt = LocalDateTime.now(); }
 }
